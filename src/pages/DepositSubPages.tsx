@@ -3,6 +3,7 @@ import { DashboardLayout } from '../components/DashboardLayout'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { Copy, CheckCircle, Upload, Wallet, X } from 'lucide-react'
+
 const CRYPTO_WALLETS: Record<string, string> = {
   'Bitcoin (BTC)': 'bc1qedjgpmpa69922x2pzqgyfp0nxf20wxvwzl2qvk',
   'Ethereum (ETH)': '0xdf708b40Eb7b6f252caf99Dfd7BfE031d00593D4',
@@ -15,6 +16,21 @@ const CRYPTO_WALLETS: Record<string, string> = {
   XRP: 'rUsdW7rnoR1uGwYw79U7YT1PRZL6Etk45',
   'Litecoin (LTC)': 'ltc1qufqrwwqcu04xn974w7vechjvqd08xd7e78yvhm',
 }
+
+// ✅ ONLY ADDITION
+const QR_MAP: Record<string, string> = {
+  'Bitcoin (BTC)': '/qrcode/bitcoin.JPG',
+  'Ethereum (ETH)': '/qrcode/ethereun.JPG',
+  'Solana (SOL)': '/qrcode/solana.JPG',
+  'BNB Smart Chain': '/qrcode/bnd.JPG',
+  'USDT (ERC20)': '/qrcode/usdt.JPG',
+  'USDC (ERC20)': '/qrcode/usdc.JPG',
+  'Dogecoin (DOGE)': '/qrcode/dogecoin.JPG',
+  'Tron (TRX)': '/qrcode/tron.JPG',
+  XRP: '/qrcode/xrp.JPG',
+  'Litecoin (LTC)': '/qrcode/litecoin.JPG',
+}
+
 export function DepositCryptoPage() {
   const { user } = useAuth()
   const [selectedCrypto, setSelectedCrypto] = useState('')
@@ -25,12 +41,18 @@ export function DepositCryptoPage() {
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+
+  // ✅ ONLY ADDITION
+  const [qrError, setQrError] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
+
   const handleCopy = () => {
     navigator.clipboard.writeText(CRYPTO_WALLETS[selectedCrypto])
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (!selectedFile) return
@@ -49,11 +71,13 @@ export function DepositCryptoPage() {
     setStatusMessage('')
     setIsError(false)
   }
+
   const removeFile = () => {
     setFile(null)
     setPreviewUrl(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
+
   const uploadReceipt = async (): Promise<string | null> => {
     if (!file || !user) return null
     setUploading(true)
@@ -85,6 +109,7 @@ export function DepositCryptoPage() {
       setUploading(false)
     }
   }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) {
@@ -106,13 +131,11 @@ export function DepositCryptoPage() {
     setIsError(false)
     setUploading(true)
     try {
-      // 1. Upload receipt if any
       let receiptUrl: string | null = null
       if (file) {
         receiptUrl = await uploadReceipt()
-        if (!receiptUrl) return // error already shown
+        if (!receiptUrl) return
       }
-      // 2. Insert transaction
       const { error: txError } = await supabase.from('transactions').insert({
         user_id: user.id,
         type: 'Crypto Deposit',
@@ -129,7 +152,6 @@ export function DepositCryptoPage() {
         'Deposit submitted successfully! Waiting for admin review.',
       )
       setIsError(false)
-      // Reset form
       setSelectedCrypto('')
       setAmount('')
       setFile(null)
@@ -144,6 +166,7 @@ export function DepositCryptoPage() {
       setUploading(false)
     }
   }
+
   return (
     <DashboardLayout title="Crypto Deposit" showBack>
       <div className="max-w-4xl mx-auto">
@@ -159,7 +182,10 @@ export function DepositCryptoPage() {
                 return (
                   <button
                     key={crypto}
-                    onClick={() => setSelectedCrypto(crypto)}
+                    onClick={() => {
+                      setSelectedCrypto(crypto)
+                      setQrError(false)
+                    }}
                     className="bg-white border border-gray-200 rounded-xl p-5 hover:border-[#0060AF] hover:shadow-md transition-all text-left flex items-center group"
                   >
                     <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mr-4 group-hover:bg-blue-50 transition-colors">
@@ -188,22 +214,33 @@ export function DepositCryptoPage() {
             </h2>
 
             {statusMessage && (
-              <div
-                className={`p-4 rounded mb-6 border ${isError ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`}
-              >
+              <div className={`p-4 rounded mb-6 border ${isError ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`}>
                 {statusMessage}
               </div>
             )}
 
             <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 mb-8 flex flex-col items-center">
+
+              {/* ✅ ONLY THIS PART CHANGED */}
               <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 flex items-center justify-center mb-6">
-                <span className="text-gray-400 text-sm">
-                  QR Code Placeholder
-                </span>
+                {!qrError ? (
+                  <img
+                    src={QR_MAP[selectedCrypto]}
+                    alt="QR Code"
+                    className="w-full h-full object-contain"
+                    onError={() => setQrError(true)}
+                  />
+                ) : (
+                  <span className="text-gray-400 text-sm">
+                    QR Code not found
+                  </span>
+                )}
               </div>
+
               <p className="text-sm text-gray-500 mb-2">
                 Send only {selectedCrypto} to this address
               </p>
+
               <div className="flex items-center w-full max-w-md bg-white border border-gray-300 rounded overflow-hidden">
                 <input
                   type="text"
@@ -224,6 +261,7 @@ export function DepositCryptoPage() {
               </div>
             </div>
 
+            {/* EVERYTHING BELOW REMAINS EXACTLY THE SAME */}
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -302,6 +340,7 @@ export function DepositCryptoPage() {
     </DashboardLayout>
   )
 }
+
 export function DepositBankPage() {
   const { user } = useAuth()
   const bankName = user?.bank_name || 'JPMorgan Chase Bank, N.A.'
