@@ -3,7 +3,6 @@ import { DashboardLayout } from '../components/DashboardLayout'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { Copy, CheckCircle, Upload, Wallet, X } from 'lucide-react'
-
 const CRYPTO_WALLETS: Record<string, string> = {
   'Bitcoin (BTC)': 'bc1qedjgpmpa69922x2pzqgyfp0nxf20wxvwzl2qvk',
   'Ethereum (ETH)': '0xdf708b40Eb7b6f252caf99Dfd7BfE031d00593D4',
@@ -16,7 +15,6 @@ const CRYPTO_WALLETS: Record<string, string> = {
   XRP: 'rUsdW7rnoR1uGwYw79U7YT1PRZL6Etk45',
   'Litecoin (LTC)': 'ltc1qufqrwwqcu04xn974w7vechjvqd08xd7e78yvhm',
 }
-
 export function DepositCryptoPage() {
   const { user } = useAuth()
   const [selectedCrypto, setSelectedCrypto] = useState('')
@@ -28,18 +26,14 @@ export function DepositCryptoPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
   const handleCopy = () => {
-    if (!selectedCrypto) return
     navigator.clipboard.writeText(CRYPTO_WALLETS[selectedCrypto])
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (!selectedFile) return
-
     if (!selectedFile.type.startsWith('image/')) {
       setStatusMessage('Please upload an image file (screenshot)')
       setIsError(true)
@@ -50,38 +44,37 @@ export function DepositCryptoPage() {
       setIsError(true)
       return
     }
-
     setFile(selectedFile)
     setPreviewUrl(URL.createObjectURL(selectedFile))
     setStatusMessage('')
     setIsError(false)
   }
-
   const removeFile = () => {
     setFile(null)
     setPreviewUrl(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
-
   const uploadReceipt = async (): Promise<string | null> => {
     if (!file || !user) return null
     setUploading(true)
-
     try {
       const fileExt = file.name.split('.').pop() || 'png'
       const fileName = `${user.id}/${Date.now()}.${fileExt}`
       const filePath = `receipts/${fileName}`
-
       const { error: uploadError } = await supabase.storage
         .from('uploads')
-        .upload(filePath, file, { cacheControl: '3600', upsert: false })
-
-      if (uploadError) throw new Error(uploadError.message)
-
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        })
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError)
+        throw new Error(uploadError.message)
+      }
       const { data: urlData } = supabase.storage
         .from('uploads')
         .getPublicUrl(filePath)
-
+      if (!urlData.publicUrl) throw new Error('Failed to get public URL')
       return urlData.publicUrl
     } catch (err: any) {
       console.error('Upload failed:', err)
@@ -92,26 +85,34 @@ export function DepositCryptoPage() {
       setUploading(false)
     }
   }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user || !selectedCrypto || !amount || parseFloat(amount) <= 0) {
-      setStatusMessage('Please fill all required fields')
+    if (!user) {
+      setStatusMessage('You must be logged in to submit a deposit')
       setIsError(true)
       return
     }
-
+    if (!selectedCrypto) {
+      setStatusMessage('Please select a cryptocurrency')
+      setIsError(true)
+      return
+    }
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      setStatusMessage('Please enter a valid amount greater than 0')
+      setIsError(true)
+      return
+    }
     setStatusMessage('Processing...')
     setIsError(false)
     setUploading(true)
-
     try {
+      // 1. Upload receipt if any
       let receiptUrl: string | null = null
       if (file) {
         receiptUrl = await uploadReceipt()
-        if (!receiptUrl) return
+        if (!receiptUrl) return // error already shown
       }
-
+      // 2. Insert transaction
       const { error: txError } = await supabase.from('transactions').insert({
         user_id: user.id,
         type: 'Crypto Deposit',
@@ -120,30 +121,29 @@ export function DepositCryptoPage() {
         status: 'pending',
         receipt_url: receiptUrl,
       })
-
-      if (txError) throw new Error(txError.message)
-
-      setStatusMessage('Deposit submitted successfully! Waiting for admin review.')
+      if (txError) {
+        console.error('Transaction insert error:', txError)
+        throw new Error(txError.message)
+      }
+      setStatusMessage(
+        'Deposit submitted successfully! Waiting for admin review.',
+      )
       setIsError(false)
-
       // Reset form
       setSelectedCrypto('')
       setAmount('')
       setFile(null)
       setPreviewUrl(null)
     } catch (err: any) {
-      setStatusMessage(`Failed to submit deposit: ${err.message}`)
+      console.error('Submit failed:', err)
+      setStatusMessage(
+        `Failed to submit deposit: ${err.message || 'Unknown error'}`,
+      )
       setIsError(true)
     } finally {
       setUploading(false)
     }
   }
-
-  // Get QR code path
-  const getQRCodePath = (crypto: string) => {
-    return `/qrcode/${crypto}.jpg`
-  }
-
   return (
     <DashboardLayout title="Crypto Deposit" showBack>
       <div className="max-w-4xl mx-auto">
@@ -189,34 +189,21 @@ export function DepositCryptoPage() {
 
             {statusMessage && (
               <div
-                className={`p-4 rounded mb-6 border ${
-                  isError
-                    ? 'bg-red-50 text-red-800 border-red-200'
-                    : 'bg-green-50 text-green-800 border-green-200'
-                }`}
+                className={`p-4 rounded mb-6 border ${isError ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`}
               >
                 {statusMessage}
               </div>
             )}
 
-            {/* QR Code Section - FIXED */}
             <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 mb-8 flex flex-col items-center">
-              <div className="w-48 h-48 bg-white border border-gray-300 rounded-lg overflow-hidden mb-6 shadow-sm">
-                <img
-                  src={getQRCodePath(selectedCrypto)}
-                  alt={`${selectedCrypto} QR Code`}
-                  className="w-full h-full object-contain p-2"
-                  onError={(e) => {
-                    e.currentTarget.src = '/placeholder-qr.png' // fallback if needed
-                    console.error(`QR Code not found for: ${selectedCrypto}`)
-                  }}
-                />
+              <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 flex items-center justify-center mb-6">
+                <span className="text-gray-400 text-sm">
+                  QR Code Placeholder
+                </span>
               </div>
-
-              <p className="text-sm text-gray-500 mb-2 text-center">
-                Send only <span className="font-semibold">{selectedCrypto}</span> to this address
+              <p className="text-sm text-gray-500 mb-2">
+                Send only {selectedCrypto} to this address
               </p>
-
               <div className="flex items-center w-full max-w-md bg-white border border-gray-300 rounded overflow-hidden">
                 <input
                   type="text"
@@ -303,18 +290,63 @@ export function DepositCryptoPage() {
 
               <button
                 type="submit"
-                disabled={uploading || !amount}
-                className={`w-full font-semibold py-3 rounded transition-colors ${
-                  uploading || !amount
-                    ? 'bg-gray-400 cursor-not-allowed text-white'
-                    : 'bg-[#0060AF] hover:bg-blue-800 text-white'
-                }`}
+                disabled={uploading || !amount || !selectedCrypto}
+                className={`w-full font-semibold py-3 rounded transition-colors ${uploading || !amount || !selectedCrypto ? 'bg-gray-400 cursor-not-allowed text-white' : 'bg-[#0060AF] hover:bg-blue-800 text-white'}`}
               >
                 {uploading ? 'Processing...' : 'Submit for Review'}
               </button>
             </form>
           </div>
         )}
+      </div>
+    </DashboardLayout>
+  )
+}
+export function DepositBankPage() {
+  const { user } = useAuth()
+  const bankName = user?.bank_name || 'JPMorgan Chase Bank, N.A.'
+  return (
+    <DashboardLayout title="Bank Details" showBack>
+      <div className="max-w-xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+          Your Account Details
+        </h2>
+        <p className="text-gray-500 mb-8">
+          Use these details to receive wire or ACH transfers.
+        </p>
+
+        <div className="space-y-6">
+          <div className="bg-gray-50 p-4 rounded border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+              Bank Name
+            </p>
+            <p className="text-lg font-semibold text-gray-900">{bankName}</p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+              Account Name
+            </p>
+            <p className="text-lg font-semibold text-gray-900">
+              {user?.full_name}
+            </p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+              Account Number
+            </p>
+            <p className="text-lg font-mono text-gray-900">
+              {user?.account_number}
+            </p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+              Routing Number
+            </p>
+            <p className="text-lg font-mono text-gray-900">
+              {user?.routing_number}
+            </p>
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   )
